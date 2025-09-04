@@ -1,5 +1,12 @@
 #include "systemcalls.h"
-
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdlib.h>     // exit, _exit
+#include <unistd.h>     // fork, execv
+#include <sys/types.h>
+#include <sys/wait.h>   // waitpid, WIFEXITED, WEXITSTATUS
+#include <errno.h>
+#include <fcntl.h>      // open, O_CREAT, O_WRONLY, O_TRUNC
 /**
  * @param cmd the command to execute with system()
  * @return true if the command in @param cmd was executed
@@ -9,14 +16,22 @@
 */
 bool do_system(const char *cmd)
 {
-
 /*
  * TODO  add your code here
  *  Call the system() function with the command set in the cmd
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
-*/
-
+*/  if (cmd == NULL) return false;
+    int ret = system(cmd);
+    if (ret ==-1){
+        return false;
+    } else {
+        if (WIFEXITED(ret) && WEXITSTATUS(ret) == 0){
+            return true;
+        } else {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -36,7 +51,7 @@ bool do_system(const char *cmd)
 
 bool do_exec(int count, ...)
 {
-    va_list args;
+    va_list args;  // We use va_list/va_arg to pull count strings into a local array command[count+1].
     va_start(args, count);
     char * command[count+1];
     int i;
@@ -58,6 +73,27 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+
+    __pid_t pid = fork();
+    if(pid < 0){
+        return false;
+    } else if (pid == 0){
+        //child process
+        if (execv(command[0], command) == -1){
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        //parent process
+        int status;
+        if (waitpid(pid, &status, 0) == -1){
+            return false;
+        }
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0){
+            return true;
+        } else {
+            return false;
+        }
+    }
 
     va_end(args);
 
@@ -93,6 +129,39 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *
 */
 
+    int fd = open(outputfile, O_WRONLY|O_CREAT|O_TRUNC, 0644);
+
+    if (fd < 0){
+        return false;
+    } else {
+        __pid_t pid = fork();
+        if(pid < 0){
+            close(fd);
+            return false;
+        } else if (pid == 0){
+            //child process
+            if (dup2(fd, STDOUT_FILENO) < 0){
+                close(fd);
+                exit(EXIT_FAILURE);
+            }
+            close(fd);
+            if (execv(command[0], command) == -1){
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            //parent process
+            close(fd);
+            int status;
+            if (waitpid(pid, &status, 0) == -1){
+                return false;
+            }
+            if (WIFEXITED(status) && WEXITSTATUS(status) == 0){
+                return true;
+            } else {
+                return false;
+            }
+        }
+    }
     va_end(args);
 
     return true;
